@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object & Plant Recognizer</title>
+    <!-- Link to manifest.json for PWA capabilities -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Optional: Apple touch icon for iOS -->
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="ObjRecognizer">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        video {
+            border-radius: 1rem;
+            transform: scaleX(1);
+        }
+        canvas {
+            display: none;
+        }
+        #capturedImage {
+            border-radius: 1rem;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .mic-listening {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(34, 139, 34, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(34, 139, 34, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 139, 34, 0); }
+        }
+        /* Custom modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 90%;
+            width: 400px;
+        }
+
+        /* form styles */
+        .form-field {
+            margin: 1rem 0;
+            border: 1px solid #333;
+            padding: 0.5rem;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4 bg-gray-100">
+
+    <div class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-2xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Object & Plant Recognizer</h1>
+        <div class="flex items-center justify-between mb-4">
+            <input type="password" id="field-api-key" placeholder="Enter your Gemini API key" class="form-field flex-grow mr-2 rounded-lg" />
+            <button id="getApiKeyButton" class="py-2 px-4 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 transition-colors duration-300">
+                Get API Key
+            </button>
+        </div>
+        <!-- Video stream from camera -->
+        <video id="videoFeed" class="w-full h-auto rounded-xl shadow-lg mb-4 bg-gray-800" autoplay playsinline></video>
+        
+        <!-- Microphone Status -->
+        <div id="micStatus" class="text-center text-sm text-gray-500 mb-4 h-5"></div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <!-- Button to capture image -->
+            <button id="captureButton" class="py-3 px-4 bg-blue-600 text-white font-semibold rounded-xl shadow-md hover:bg-blue-700 transition-colors duration-300 flex items-center justify-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.808-1.212A2 2 0 0110.603 4h2.794a2 2 0 011.664.89l.808 1.212a2 2 0 001.664.89H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                Capture
+            </button>
+
+            <!-- Button to flip camera -->
+            <button id="flipCameraButton" class="py-3 px-4 bg-gray-600 text-white font-semibold rounded-xl shadow-md hover:bg-gray-700 transition-colors duration-300 flex items-center justify-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                Flip
+            </button>
+
+            <!-- Button to toggle camera on/off -->
+            <button id="toggleCameraButton" class="py-3 px-4 bg-red-600 text-white font-semibold rounded-xl shadow-md hover:bg-red-700 transition-colors duration-300 flex items-center justify-center">
+                   <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2A9 9 0 111 12a9 9 0 0118 0z"></path></svg>
+                    Cam Off
+            </button>
+            
+            <!-- Button to toggle microphone -->
+            <button id="toggleMicButton" class="py-3 px-4 bg-gray-400 text-white font-semibold rounded-xl shadow-md hover:bg-gray-500 transition-colors duration-300 flex items-center justify-center">
+                <svg id="micIcon" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-1a6 6 0 11-5.002-9.646l.943.346A7.001 7.001 0 0011 14.93zM6.93 5.002A7.001 7.001 0 003 8h1a6 6 0 115.002 9.646l-.943-.346A7.001 7.001 0 006.93 5.002z" clip-rule="evenodd"></path></svg>
+                Mic Off
+            </button>
+        </div>
+
+        <!-- Canvas for drawing the captured image (hidden) -->
+        <canvas id="canvas" class="hidden"></canvas>
+
+        <!-- Display area for captured image and results -->
+        <div id="resultsContainer" class="hidden">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 text-center">Analysis Results</h2>
+            <img id="capturedImage" class="w-full h-auto rounded-xl shadow-lg mb-6 object-cover" alt="Captured Image" />
+
+            <div id="loadingIndicator" class="flex items-center justify-center py-4 hidden">
+                <div class="loading-spinner mr-3"></div>
+                <span id="loadingText" class="text-blue-600 text-lg">Analyzing...</span>
+            </div>
+
+            <div id="descriptionArea" class="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-700 mb-2" id="objectNameHeader">Object Name</h3>
+                    <p id="objectNameText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                </div>
+                 <div>
+                    <h3 class="text-xl font-semibold text-gray-700 mb-2">Description:</h3>
+                    <p id="descriptionText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                </div>
+                <div id="objectPriceSection" class="hidden space-y-2">
+                    <h3 class="text-xl font-semibold text-blue-700 mb-2">Price Information:</h3>
+                    <div>
+                        <h4 class="font-semibold text-gray-800">💰 Estimated Price:</h4>
+                        <p id="estimatedPriceText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                    </div>
+                </div>
+                <div id="animalDetailsSection" class="hidden space-y-2">
+                    <h3 class="text-xl font-semibold text-purple-700 mb-2">Animal Details:</h3>
+                    <div>
+                        <h4 class="font-semibold text-gray-800">🐾 Type/Breed:</h4>
+                        <p id="animalBreedText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                    </div>
+                </div>
+                <div id="plantCareSection" class="hidden space-y-2">
+                    <h3 class="text-xl font-semibold text-green-700 mb-2">Care Instructions:</h3>
+                     <div>
+                        <h4 class="font-semibold text-gray-800">💧 Watering Amount:</h4>
+                        <p id="wateringText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-800 mt-2">☀️ Other Care:</h4>
+                        <p id="careText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                    </div>
+                </div>
+                <div id="plantHealthSection" class="hidden">
+                    <h3 class="text-xl font-semibold text-red-700 mb-2">❤️ Health Assessment:</h3>
+                    <p id="healthText" class="text-gray-600 leading-relaxed whitespace-pre-wrap"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Message Box/Modal -->
+    <div id="messageBox" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h3 id="messageBoxTitle" class="text-xl font-bold text-gray-800 mb-4"></h3>
+            <p id="messageBoxContent" class="text-gray-700 mb-6"></p>
+            <button id="messageBoxCloseButton" class="py-2 px-6 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300">OK</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Register service worker for PWA capabilities
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
+        // Get references to DOM elements
+        const video = document.getElementById('videoFeed');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const captureButton = document.getElementById('captureButton');
+        const flipCameraButton = document.getElementById('flipCameraButton');
+        const toggleCameraButton = document.getElementById('toggleCameraButton');
+        const toggleMicButton = document.getElementById('toggleMicButton');
+        const micStatus = document.getElementById('micStatus');
+        const getApiKeyButton = document.getElementById('getApiKeyButton'); // New button
+
+        const capturedImage = document.getElementById('capturedImage');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const descriptionArea = document.getElementById('descriptionArea');
+        
+        const objectNameHeader = document.getElementById('objectNameHeader');
+        const objectNameText = document.getElementById('objectNameText');
+        const descriptionText = document.getElementById('descriptionText');
+        const plantCareSection = document.getElementById('plantCareSection');
+        const wateringText = document.getElementById('wateringText');
+        const careText = document.getElementById('careText');
+        const plantHealthSection = document.getElementById('plantHealthSection');
+        const healthText = document.getElementById('healthText');
+        const animalDetailsSection = document.getElementById('animalDetailsSection');
+        const animalBreedText = document.getElementById('animalBreedText');
+        const objectPriceSection = document.getElementById('objectPriceSection');
+        const estimatedPriceText = document.getElementById('estimatedPriceText');
+
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const loadingText = document.getElementById('loadingText');
+
+        // Message Box elements
+        const messageBox = document.getElementById('messageBox');
+        const messageBoxTitle = document.getElementById('messageBoxTitle');
+        const messageBoxContent = document.getElementById('messageBoxContent');
+        const messageBoxCloseButton = document.getElementById('messageBoxCloseButton');
+        let apiKey = "";
+
+        // Form fields
+        function onFieldApiKeyChange(event) {
+            apiKey = event.target.value;
+        }
+        const apiKeyField = document.getElementById("field-api-key")
+        apiKeyField.addEventListener("change", onFieldApiKeyChange)
+
+        let currentFacingMode = 'environment';
+        let isCameraOn = false;
+        let isMicOn = false;
+        let hasMicPermission = false;
+
+
+        // Function to show a custom message box
+        function showMessageBox(title, message) {
+            messageBoxTitle.textContent = title;
+            messageBoxContent.innerHTML = message; // Use innerHTML to allow links
+            messageBox.classList.remove('hidden');
+        }
+
+        // Function to hide the custom message box
+        function hideMessageBox() {
+            messageBox.classList.add('hidden');
+        }
+
+        // Event listener for message box close button
+        messageBoxCloseButton.addEventListener('click', hideMessageBox);
+
+        // Event listener for "Get API Key" button
+        getApiKeyButton.addEventListener('click', () => {
+            const title = "How to Get a Gemini API Key";
+            const message = `
+                To get your own Gemini API key, please visit the Google AI Studio website.
+                <br><br>
+                1. Go to the <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-600 hover:underline">Google AI Studio API Key Page</a>.
+                <br>
+                2. Sign in with your Google account.
+                <br>
+                3. Click on "Create API Key in new project" or "Create API Key" to generate a new key.
+                <br>
+                4. Copy the generated API key and paste it into the "Enter your Gemini API key" field above.
+            `;
+            showMessageBox(title, message);
+        });
+
+        // Speech Recognition Setup
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+
+            recognition.onresult = (event) => {
+                const last = event.results.length - 1;
+                const command = event.results[last][0].transcript.trim().toLowerCase();
+                micStatus.textContent = `Heard: "${command}"`;
+
+                if (command.includes('take a picture') || command.includes('take picture')) {
+                    if (isCameraOn) {
+                        micStatus.textContent = "Taking picture...";
+                        captureButton.click();
+                    } else {
+                        micStatus.textContent = "Please turn on the camera first.";
+                    }
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                micStatus.textContent = `Mic error: ${event.error}`;
+                if (event.error === 'not-allowed') {
+                    hasMicPermission = false;
+                    toggleMicButton.disabled = true;
+                    toggleMicButton.classList.add('btn-disabled');
+                    isMicOn = false;
+                    toggleMicButton.innerHTML = `<svg id="micIcon" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-1a6 6 0 11-5.002-9.646l.943.346A7.001 7.001 0 0011 14.93zM6.93 5.002A7.001 7.001 0 003 8h1a6 6 0 115.002 9.646l-.943-.346A7.001 7.001 0 006.93 5.002z" clip-rule="evenodd"></path></svg> Mic Off`;
+                    toggleMicButton.classList.replace('bg-green-600', 'bg-gray-400');
+                    toggleMicButton.classList.replace('hover:bg-green-700', 'hover:bg-gray-500');
+                    toggleMicButton.classList.remove('mic-listening');
+                    showMessageBox(
+                        "Microphone Permission Denied",
+                        "To use voice commands, please enable microphone access in your browser settings. You may need to refresh the page after granting permission."
+                    );
+                } else if (event.error === 'network' || event.error === 'audio-capture') {
+                     micStatus.textContent = `Mic error: ${event.error}. Please check your internet connection or microphone hardware.`;
+                }
+            };
+
+            recognition.onend = () => {
+                if (isMicOn && hasMicPermission) {
+                    recognition.start();
+                }
+            };
+        } else {
+            toggleMicButton.disabled = true;
+            toggleMicButton.classList.add('btn-disabled');
+            micStatus.textContent = "Speech recognition not supported in this browser.";
+            showMessageBox(
+                "Browser Not Supported",
+                "Speech recognition is not supported by your current browser. Please try using a modern browser like Chrome or Edge."
+            );
+        }
+
+        function updateButtonStates(enabled) {
+            captureButton.disabled = !enabled;
+            flipCameraButton.disabled = !enabled;
+            if (enabled) {
+                captureButton.classList.remove('btn-disabled');
+                flipCameraButton.classList.remove('btn-disabled');
+            } else {
+                captureButton.classList.add('btn-disabled');
+                flipCameraButton.classList.add('btn-disabled');
+            }
+        }
+
+        async function startCamera(facingMode) {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } });
+                video.srcObject = stream;
+                video.play();
+                currentFacingMode = facingMode;
+                isCameraOn = true;
+                toggleCameraButton.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2A9 9 0 111 12a9 9 0 0118 0z"></path></svg> Cam Off`;
+                toggleCameraButton.classList.replace('bg-green-600', 'bg-red-600');
+                toggleCameraButton.classList.replace('hover:bg-green-700', 'hover:bg-red-700');
+                updateButtonStates(true);
+                video.style.transform = (facingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
+                resultsContainer.classList.add('hidden');
+                console.log("Camera started successfully.");
+            } catch (err) {
+                console.error("Error accessing camera: ", err);
+                micStatus.textContent = `Camera error. Please grant permissions.`;
+                showMessageBox(
+                    "Camera Permission Denied",
+                    "To use the camera, please enable camera access in your browser settings. You may need to refresh the page after granting permission."
+                );
+                resultsContainer.classList.remove('hidden');
+                isCameraOn = false;
+                toggleCameraButton.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg> Cam On`;
+                toggleCameraButton.classList.replace('bg-red-600', 'bg-green-600');
+                toggleCameraButton.classList.replace('hover:bg-red-700', 'hover:bg-green-700');
+                updateButtonStates(false);
+            }
+        }
+
+        function stopCamera() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            isCameraOn = false;
+            toggleCameraButton.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg> Cam On`;
+            toggleCameraButton.classList.replace('bg-red-600', 'bg-green-600');
+            toggleCameraButton.classList.replace('hover:bg-red-700', 'hover:bg-green-700');
+            updateButtonStates(false);
+        }
+
+        captureButton.addEventListener('click', () => {
+            if (!isCameraOn) return;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.save();
+            if (currentFacingMode === 'user') {
+                context.scale(-1, 1);
+                context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+            } else {
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            }
+            context.restore();
+            const imageDataURL = canvas.toDataURL('image/png');
+            capturedImage.src = imageDataURL;
+            resultsContainer.classList.remove('hidden');
+            descriptionArea.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden');
+            loadingText.textContent = 'Analyzing image...';
+            const base64ImageData = imageDataURL.split(',')[1];
+            analyzeImage(base64ImageData);
+        });
+
+        flipCameraButton.addEventListener('click', () => {
+            if (isCameraOn) {
+                startCamera(currentFacingMode === 'environment' ? 'user' : 'environment');
+            }
+        });
+
+        toggleCameraButton.addEventListener('click', () => {
+            if (isCameraOn) stopCamera();
+            else startCamera(currentFacingMode);
+        });
+
+        toggleMicButton.addEventListener('click', () => {
+            if (!SpeechRecognition) {
+                showMessageBox("Browser Not Supported", "Speech recognition is not supported in this browser.");
+                return;
+            }
+
+            if (isMicOn) {
+                recognition.stop();
+                isMicOn = false;
+                micStatus.textContent = "Microphone is off.";
+                toggleMicButton.classList.replace('bg-green-600', 'bg-gray-400');
+                toggleMicButton.classList.replace('hover:bg-green-700', 'hover:bg-gray-500');
+                toggleMicButton.classList.remove('mic-listening');
+                toggleMicButton.innerHTML = `<svg id="micIcon" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8h-1a6 6 0 11-5.002-9.646l.943.346A7.001 7.001 0 0011 14.93zM6.93 5.002A7.001 7.001 0 003 8h1a6 6 0 115.002 9.646l-.943-.346A7.001 7.001 0 006.93 5.002z" clip-rule="evenodd"></path></svg> Mic Off`;
+            } else {
+                if (hasMicPermission || !toggleMicButton.disabled) {
+                    try {
+                        recognition.start();
+                        isMicOn = true;
+                        micStatus.textContent = "Listening... Say 'take a picture'";
+                        toggleMicButton.classList.replace('bg-gray-400', 'bg-green-600');
+                        toggleMicButton.classList.replace('hover:bg-gray-500', 'hover:bg-green-700');
+                        toggleMicButton.classList.add('mic-listening');
+                        toggleMicButton.innerHTML = `<svg id="micIcon" class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M5 7a5 5 0 0110 0v1a5 5 0 01-10 0V7z"></path><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0 2a10 10 0 100-20 10 10 0 000 20z" clip-rule="evenodd"></path></svg> Mic On`;
+                    } catch (e) {
+                        console.error("Error starting speech recognition:", e);
+                        micStatus.textContent = "Error starting microphone. Check permissions.";
+                        toggleMicButton.disabled = true;
+                        toggleMicButton.classList.add('btn-disabled');
+                        hasMicPermission = false;
+                        showMessageBox(
+                            "Microphone Access Error",
+                            "Could not start microphone. Please ensure your browser has permission and try again. It might also be that your browser does not support SpeechRecognition API or you don't have a microphone device."
+                        );
+                    }
+                } else {
+                    showMessageBox(
+                        "Microphone Disabled",
+                        "Microphone access was previously denied. Please enable it in your browser settings and refresh the page."
+                    );
+                }
+            }
+        });
+
+
+        // Function to analyze the image using the Gemini API
+        async function analyzeImage(base64ImageData) {
+            const prompt = `
+                Analyze the main object in this picture. Your response MUST be a valid JSON object.
+                First, identify the object. Then, determine if it's a plant or an animal.
+                - If the object is NOT a plant and NOT an animal: Respond with the object's name and a general description, including 2-3 relevant facts. 
+                  If it's an animal tooth (like a shark tooth) or a gem, explicitly identify the type (e.g., "Megalodon tooth", "Emerald").
+                  For animal teeth and gems, also provide the estimated length, size, and weight if discernible from the image, and use these attributes to give a more precise estimated market price or price range in USD.
+                  For other inanimate objects, provide a general estimated market price or price range in USD.
+                  The 'isPlant' field should be false, 'isAnimal' should be false, and plant/animal-specific fields should be empty strings.
+                - If the object IS a plant: Respond with the plant's species name and a general description. 
+                  Specify the recommended amount of water in a common measuring unit (e.g., '1-2 cups' or '250-500 ml') and frequency.
+                  Provide other detailed care instructions (sunlight, soil). 
+                  Then, assess the plant's health from the image. If it looks unhealthy (sick, dying, injured), identify the symptoms and provide a detailed treatment plan. If it looks healthy, provide tips for keeping it that way. The 'isPlant' field should be true, 'isAnimal' should be false.
+                - If the object IS an animal: Respond with the animal's common name and a general description.
+                  Identify the specific type or breed of the animal. If it's a mixed breed, provide the most likely breeds in the mix (e.g., "Labrador with Australian cattle mix"). If a specific breed is not discernible, state the general type (e.g., "domestic cat").
+                  The 'isPlant' field should be false, 'isAnimal' should be true, and plant-specific fields should be empty strings.
+                Provide your response in the specified JSON format.`;
+
+            const payload = {
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: "image/png", data: base64ImageData } }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            "isPlant": { "type": "BOOLEAN" },
+                            "isAnimal": { "type": "BOOLEAN" },
+                            "objectName": { "type": "STRING" },
+                            "description": { "type": "STRING" },
+                            "wateringAmount": { "type": "STRING" },
+                            "careInstructions": { "type": "STRING" },
+                            "healthAssessment": { "type": "STRING" },
+                            "animalBreedOrType": { "type": "STRING" },
+                            "estimatedPrice": { "type": "STRING" }
+                        },
+                        required: ["isPlant", "isAnimal", "objectName", "description", "wateringAmount", "careInstructions", "healthAssessment", "animalBreedOrType", "estimatedPrice"]
+                    }
+                }
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts.length > 0) {
+                    const jsonString = result.candidates[0].content.parts[0].text;
+                    const parsedJson = JSON.parse(jsonString);
+                    displayResults(parsedJson);
+                } else {
+                    throw new Error("Could not get a valid response from the API.");
+                }
+            } catch (error) {
+                console.error("Error analyzing image:", error);
+                objectNameText.textContent = "Analysis Failed";
+                descriptionText.textContent = `An error occurred: ${error.message}. Please try again.`;
+                plantCareSection.classList.add('hidden');
+                plantHealthSection.classList.add('hidden');
+                animalDetailsSection.classList.add('hidden');
+                objectPriceSection.classList.add('hidden');
+            } finally {
+                loadingIndicator.classList.add('hidden');
+                descriptionArea.classList.remove('hidden');
+            }
+        }
+        
+        function displayResults(data) {
+            const { isPlant, isAnimal, objectName, description, wateringAmount, careInstructions, healthAssessment, animalBreedOrType, estimatedPrice } = data;
+
+            plantCareSection.classList.add('hidden');
+            plantHealthSection.classList.add('hidden');
+            animalDetailsSection.classList.add('hidden');
+            objectPriceSection.classList.add('hidden');
+
+            objectNameHeader.textContent = 'Object Name';
+            objectNameText.textContent = objectName || 'Not identified';
+            descriptionText.textContent = description || 'No description available.';
+
+            if (isPlant) {
+                objectNameHeader.textContent = 'Plant Species';
+                plantCareSection.classList.remove('hidden');
+                wateringText.textContent = wateringAmount || 'No specific watering amount available.';
+                careText.textContent = careInstructions || 'No other specific care instructions available.';
+                
+                plantHealthSection.classList.remove('hidden');
+                healthText.textContent = healthAssessment || 'No health assessment available.';
+            } else if (isAnimal) {
+                objectNameHeader.textContent = 'Animal Name';
+                animalDetailsSection.classList.remove('hidden');
+                animalBreedText.textContent = animalBreedOrType || 'No specific type/breed identified.';
+            } else { // It's a general object (could be a tooth, gem, or other inanimate object)
+                objectPriceSection.classList.remove('hidden');
+                estimatedPriceText.textContent = estimatedPrice || 'Price information not available.';
+                // The objectName and description fields will carry the specific tooth/gem identification
+            }
+        }
+
+        async function requestMicrophonePermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log("Microphone access granted.");
+                hasMicPermission = true;
+                stream.getTracks().forEach(track => track.stop());
+                micStatus.textContent = "Microphone ready (click Mic Off/On to activate voice commands).";
+                toggleMicButton.disabled = false;
+                toggleMicButton.classList.remove('btn-disabled');
+
+            } catch (err) {
+                console.error("Error requesting microphone access:", err);
+                hasMicPermission = false;
+                toggleMicButton.disabled = true;
+                toggleMicButton.classList.add('btn-disabled');
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    micStatus.textContent = "Microphone permission denied.";
+                    showMessageBox(
+                        "Microphone Permission Denied",
+                        "To use voice commands, please enable microphone access in your browser settings. You may need to refresh the page after granting permission."
+                    );
+                } else if (err.name === 'NotFoundError') {
+                    micStatus.textContent = "No microphone found.";
+                    showMessageBox(
+                        "No Microphone Found",
+                        "It seems you don't have a microphone device connected or detected. Voice commands will not be available."
+                    );
+                } else {
+                    micStatus.textContent = `Microphone error: ${err.name}.`;
+                    showMessageBox(
+                        "Microphone Error",
+                        `An unexpected error occurred while accessing the microphone: ${err.message}.`
+                    );
+                }
+            }
+        }
+
+        window.onload = () => {
+            startCamera('environment');
+            if (SpeechRecognition) {
+                requestMicrophonePermission();
+            }
+        };
+    </script>
+</body>
+</html>
